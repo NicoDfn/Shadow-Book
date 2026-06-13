@@ -306,7 +306,7 @@ function openSignIn(){
   document.getElementById("siCancel").onclick=closeModal;
   const go=async()=>{const em=document.getElementById("siEmail").value.trim(),pw=document.getElementById("siPw").value;try{await signIn(em,pw);closeModal();}catch(e){document.getElementById("siErr").textContent=e.message||"Sign-in failed.";}};
   document.getElementById("siGo").onclick=go;
-  document.getElementById("siPw").onkeydown=(e)=>e.key==="Enter"&&go();
+  document.getElementById("siPw").onkeydown=(e)=>{if(e.key==="Enter")go();};
 }
 function openProfile(){
   const p=BOOK.profile;
