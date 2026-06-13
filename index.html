@@ -199,13 +199,13 @@ function computeStats(positions){
 }
 
 async function tdSeries(symbol,fromDate,toDate){
-  const u=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=300&apikey=${C.TWELVEDATA_KEY}`;
+  const start=new Date(fromDate);start.setDate(start.getDate()-10);
+  const end=new Date(toDate||today());end.setDate(end.getDate()+10);
+  const sd=start.toISOString().slice(0,10),ed=end.toISOString().slice(0,10);
+  const u=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&start_date=${sd}&end_date=${ed}&outputsize=5000&apikey=${C.TWELVEDATA_KEY}`;
   const r=await fetch(u);const j=await r.json();
   if(j.status==="error"||!j.values)throw new Error(j.message||("No data for "+symbol));
-  let s=j.values.map(v=>({t:v.datetime,c:Number(v.close)})).filter(x=>!isNaN(x.c)).sort((a,b)=>a.t.localeCompare(b.t));
-  const lo=new Date(fromDate);lo.setDate(lo.getDate()-10);
-  const hi=new Date(toDate||today());hi.setDate(hi.getDate()+10);
-  return s.filter(p=>{const d=new Date(p.t);return d>=lo&&d<=hi;});
+  return j.values.map(v=>({t:v.datetime,c:Number(v.close)})).filter(x=>!isNaN(x.c)).sort((a,b)=>a.t.localeCompare(b.t));
 }
 async function tdLast(symbol){
   const r=await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${C.TWELVEDATA_KEY}`);
