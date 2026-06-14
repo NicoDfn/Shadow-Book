@@ -9,11 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
 <style>
-:root{
-  --bg:#0D1014;--panel:#141A21;--panel2:#1A222C;--line:#232E3A;--line2:#2E3B49;
-  --text:#E8EDF2;--soft:#9AA7B4;--faint:#5E6C7A;
-  --gold:#D9A441;--goldSoft:#9B7B36;--gain:#46C08A;--loss:#E96A56;
-}
+:root{--bg:#0D1014;--panel:#141A21;--panel2:#1A222C;--line:#232E3A;--line2:#2E3B49;--text:#E8EDF2;--soft:#9AA7B4;--faint:#5E6C7A;--gold:#D9A441;--goldSoft:#9B7B36;--gain:#46C08A;--loss:#E96A56;}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
 .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace}
@@ -28,7 +24,7 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-heig
 .tagline{font-size:13px;color:var(--soft);margin-top:5px;max-width:520px}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .hero{background:var(--panel);border:.5px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px;position:relative;overflow:hidden}
-.stats{display:flex;flex-wrap:wrap;gap:28px;margin-bottom:16px}
+.stats{display:flex;flex-wrap:wrap;gap:26px;margin-bottom:16px}
 .stat .lab{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
 .stat .val{font-family:'IBM Plex Mono',monospace;font-weight:600;line-height:1;letter-spacing:-.01em}
 .stat .val.big{font-size:30px}.stat .val.sm{font-size:19px}
@@ -36,6 +32,8 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-heig
 .vdiv{width:1px;align-self:stretch;background:var(--line)}
 .eqwrap{height:120px;margin:6px -8px 0}
 .heronote{position:absolute;top:16px;right:18px;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+.eqlegend{display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--soft)}
+.eqlegend i{display:inline-block;width:14px;height:0;border-top:2px solid;margin-right:5px;vertical-align:middle}
 .secrow{display:flex;justify-content:space-between;align-items:center;margin:0 0 12px}
 .secrow .t{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
 .sorts{display:flex;gap:4px}
@@ -52,7 +50,6 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-heig
 .card .ret{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;line-height:1}
 .card .pnl{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--soft);margin-top:3px}
 .card .dates{display:flex;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:.5px solid var(--line);font-size:10.5px;color:var(--faint);font-family:'IBM Plex Mono',monospace}
-.gain{color:var(--gain)}.loss{color:var(--loss)}.faint{color:var(--faint)}
 .foot{margin-top:22px;padding-top:14px;border-top:.5px solid var(--line);font-size:10px;color:var(--faint);line-height:1.6}
 .overlay{position:fixed;inset:0;background:rgba(6,9,12,.74);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
 .overlay.show{display:flex}
@@ -85,15 +82,16 @@ textarea.inp{resize:vertical;font-family:'Inter',sans-serif}
 </style>
 
 <!-- ════════════════════════════════════════════════════════════════
-     CONFIG — fill these three values once (see SETUP.md).
-     Safe to expose publicly: the Supabase anon key is a browser key,
-     and write access is protected by owner sign-in (RLS).
+     CONFIG — fill the two Supabase values once (see SETUP.md).
+     PRICE_PROXY already has a working public default; swap it for your
+     own Cloudflare Worker URL (ending with ?url=) for reliability.
+     Prices come from Yahoo Finance (free, US + Europe) through the proxy.
      ════════════════════════════════════════════════════════════════ -->
 <script>
 window.CONFIG = {
   SUPABASE_URL: "https://umhxamsghhtxwhyqsyuo.supabase.co",
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtaHhhbXNnaGh0eHdoeXFzeXVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNzcyNTcsImV4cCI6MjA5Njk1MzI1N30.0gVZKFE5F-kpjRZtgTTHkj-s3-xDuXB6x-didwWfJ60",
-  TWELVEDATA_KEY: "1440641de8ed49b4a66d137ee12a96e0"
+  PRICE_PROXY: "https://corsproxy.io/?url="
 };
 </script>
 </head>
@@ -114,6 +112,7 @@ window.CONFIG = {
   <div class="hero">
     <div class="stats" id="stats"></div>
     <div class="eqwrap"><canvas id="equityChart"></canvas></div>
+    <div class="eqlegend" id="eqlegend"></div>
     <div class="heronote">Equity curve · sizing-weighted</div>
   </div>
 
@@ -129,7 +128,7 @@ window.CONFIG = {
 
   <div class="foot">
     Realized performance = P&amp;L of closed positions, weighted by sizing. Sharpe annualized from the daily equity curve (rf = 0).
-    Chart prices via Twelve Data; entry/exit prices are the owner's executions.
+    Prices from Yahoo Finance via proxy; entry/exit prices are the owner's executions.
   </div>
 </div>
 
@@ -140,7 +139,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const C = window.CONFIG;
 const configured = !C.SUPABASE_URL.includes("YOUR-") && !C.SUPABASE_ANON_KEY.includes("YOUR-");
-let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$"},positions:[]};
+let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC"},positions:[],benchmark:null};
 let session=null, sortKey="date", equityChart=null, detailChart=null, busy=false;
 
 const cur=()=>BOOK.profile.currency||"$";
@@ -198,25 +197,33 @@ function computeStats(positions){
     best:valued.length?Math.max(...valued.map(x=>x.r))*100:null,worst:valued.length?Math.min(...valued.map(x=>x.r))*100:null};
 }
 
-async function tdSeries(symbol,fromDate,toDate){
-  const start=new Date(fromDate);start.setDate(start.getDate()-10);
-  const end=new Date(toDate||today());end.setDate(end.getDate()+10);
-  const sd=start.toISOString().slice(0,10),ed=end.toISOString().slice(0,10);
-  const u=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&start_date=${sd}&end_date=${ed}&outputsize=5000&apikey=${C.TWELVEDATA_KEY}`;
-  const r=await fetch(u);const j=await r.json();
-  if(j.status==="error"||!j.values)throw new Error(j.message||("No data for "+symbol));
-  return j.values.map(v=>({t:v.datetime,c:Number(v.close)})).filter(x=>!isNaN(x.c)).sort((a,b)=>a.t.localeCompare(b.t));
+/* ───────── Yahoo Finance via proxy (US + Europe, free) ───────── */
+function yahooUrl(symbol,p1,p2){return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d`;}
+async function fetchSeries(symbol,fromDate,toDate){
+  const p1=Math.floor(new Date(fromDate).getTime()/1000)-864000;
+  const p2=Math.floor(new Date(toDate||today()).getTime()/1000)+864000;
+  const r=await fetch(C.PRICE_PROXY+encodeURIComponent(yahooUrl(symbol,p1,p2)));
+  const j=await r.json();
+  const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
+  if(!res||!res.timestamp){const m=j&&j.chart&&j.chart.error&&j.chart.error.description;throw new Error(m||("No data for "+symbol));}
+  const ts=res.timestamp,cl=res.indicators.quote[0].close;
+  return ts.map((t,i)=>({t:new Date(t*1000).toISOString().slice(0,10),c:cl[i]})).filter(p=>p.c!=null);
 }
-async function tdLast(symbol){
-  const r=await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(symbol)}&apikey=${C.TWELVEDATA_KEY}`);
-  const j=await r.json();if(j.price==null)throw new Error(j.message||("No price for "+symbol));return Number(j.price);
+async function fetchLast(symbol){
+  const now=Math.floor(Date.now()/1000);
+  const r=await fetch(C.PRICE_PROXY+encodeURIComponent(yahooUrl(symbol,now-864000,now)));
+  const j=await r.json();
+  const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
+  const last=res&&res.meta&&res.meta.regularMarketPrice;
+  if(last==null)throw new Error("No price for "+symbol);
+  return Number(last);
 }
 
 async function load(){
   if(!configured)return;
   const {data,error}=await sb.from("book").select("data").eq("id","main").single();
   if(error){banner("Could not load the book: "+error.message);return;}
-  if(data?.data)BOOK=data.data;
+  if(data?.data){BOOK={profile:{currency:"$",benchmark:"^GSPC",...data.data.profile},positions:data.data.positions||[],benchmark:data.data.benchmark||null};}
 }
 async function save(){
   if(!isOwner()){banner("Sign in to edit.");return false;}
@@ -227,7 +234,7 @@ async function save(){
 async function signIn(email,pw){const {error}=await sb.auth.signInWithPassword({email,password:pw});if(error)throw error;}
 async function signOut(){await sb.auth.signOut();}
 
-function banner(msg){const b=document.getElementById("banner");b.innerHTML=msg?`<div class="banner">${esc(msg)}</div>`:"";if(msg)setTimeout(()=>{b.innerHTML="";},6000);}
+function banner(msg){const b=document.getElementById("banner");b.innerHTML=msg?`<div class="banner">${esc(msg)}</div>`:"";if(msg)setTimeout(()=>{b.innerHTML="";},7000);}
 function toneColor(v){return (v==null||isNaN(v))?"var(--text)":v>=0?"var(--gain)":"var(--loss)";}
 function statBlock(lab,val,sub,tone,big){return `<div class="stat"><div class="lab">${lab}</div><div class="val ${big?'big':'sm'}" style="color:${toneColor(tone)}">${val}</div>${sub!=null?`<div class="sub">${sub}</div>`:''}</div>`;}
 
@@ -235,44 +242,76 @@ function renderToolbar(){
   const tb=document.getElementById("toolbar");
   if(!configured){tb.innerHTML="";return;}
   if(isOwner()){
-    tb.innerHTML=`<button class="btn ghost" id="tbProfile">Edit profile</button><button class="btn" id="tbAdd">+ Position</button><button class="btn ghost" id="tbOut">Sign out</button>`;
+    tb.innerHTML=`<button class="btn ghost" id="tbBench">↻ Benchmark</button><button class="btn ghost" id="tbProfile">Edit profile</button><button class="btn" id="tbAdd">+ Position</button><button class="btn ghost" id="tbOut">Sign out</button>`;
     document.getElementById("tbAdd").onclick=()=>openForm();
     document.getElementById("tbProfile").onclick=()=>openProfile();
+    document.getElementById("tbBench").onclick=()=>refreshBenchmark();
     document.getElementById("tbOut").onclick=async()=>{await signOut();};
   }else{
     tb.innerHTML=`<button class="btn ghost" id="tbEdit">Edit</button>`;
     document.getElementById("tbEdit").onclick=()=>openSignIn();
   }
 }
+
 function render(){
-  if(!configured){document.getElementById("configNotice").innerHTML=`<div class="notice">This Shadow Book isn't connected yet. Open <code>SETUP.md</code> and fill the three values in the <code>CONFIG</code> block at the top of <code>index.html</code> (Supabase URL, Supabase anon key, Twelve Data key), then redeploy.</div>`;}
+  if(!configured){document.getElementById("configNotice").innerHTML=`<div class="notice">This Shadow Book isn't connected yet. Open <code>SETUP.md</code> and fill the two Supabase values in the <code>CONFIG</code> block at the top of <code>index.html</code>, then redeploy.</div>`;}
   document.getElementById("profName").textContent=BOOK.profile.name||"Track record";
   document.getElementById("profTag").textContent=BOOK.profile.tagline||"";
   const s=computeStats(BOOK.positions),book=buildBook(BOOK.positions);
-  document.getElementById("stats").innerHTML=
+
+  // alpha vs benchmark
+  let alpha=null,benchRet=null;
+  if(BOOK.benchmark&&BOOK.benchmark.series&&BOOK.benchmark.series.length&&book.equity.length>1){
+    const bf=priceAtFactory(BOOK.benchmark.series);
+    let firstC=null,lastC=null;
+    for(const e of book.equity){const c=bf(e.t);if(c!=null){if(firstC==null)firstC=c;lastC=c;}}
+    if(firstC&&lastC){benchRet=(lastC/firstC-1)*100;if(s.totalPct!=null)alpha=s.totalPct-benchRet;}
+  }
+  const benchName=(BOOK.profile.benchmark||"^GSPC").replace("^","");
+
+  let html=
     statBlock("Realized performance",fmtPct(s.realizedPct),fmtMoney(s.realizedPnL),s.realizedPct,true)+
     statBlock("Sharpe (ann.)",book.sharpe==null?"—":book.sharpe.toFixed(2),book.vol==null?"vol —":"vol "+book.vol.toFixed(0)+"%",book.sharpe,true)+
     `<div class="vdiv"></div>`+
-    statBlock("Total (incl. open)",fmtPct(s.totalPct),fmtMoney(s.totalPnL),s.totalPct,false)+
+    statBlock("Total (incl. open)",fmtPct(s.totalPct),fmtMoney(s.totalPnL),s.totalPct,false);
+  if(alpha!=null)html+=statBlock("Alpha vs "+benchName,fmtPct(alpha),benchName+" "+fmtPct(benchRet),alpha,false);
+  html+=
     statBlock("Hit rate",s.hitRate==null?"—":Math.round(s.hitRate)+"%",`${s.nClosed}/${s.nTrades} closed`,null,false)+
     statBlock("Capital deployed",fmtMoney(s.deployed),`${s.nTrades} positions`,null,false)+
     statBlock("Avg hold",s.avgHold==null?"—":Math.round(s.avgHold)+"d",s.best==null?"":`+${s.best.toFixed(0)}% / ${s.worst.toFixed(0)}%`,null,false);
+  document.getElementById("stats").innerHTML=html;
+
   renderEquity(book);renderCards();renderToolbar();
   document.getElementById("posCount").textContent=BOOK.positions.length;
 }
+
 function renderEquity(book){
-  const el=document.getElementById("equityChart");
+  const el=document.getElementById("equityChart"),leg=document.getElementById("eqlegend");
   if(equityChart)equityChart.destroy();
-  if(book.equity.length<2){el.style.display="none";return;}
+  if(book.equity.length<2){el.style.display="none";leg.innerHTML="";return;}
   el.style.display="block";
   const ctx=el.getContext("2d");
   const g=ctx.createLinearGradient(0,0,0,120);g.addColorStop(0,"rgba(217,164,65,.32)");g.addColorStop(1,"rgba(217,164,65,0)");
-  equityChart=new Chart(ctx,{type:"line",
-    data:{labels:book.equity.map(e=>e.t),datasets:[{data:book.equity.map(e=>e.equity),borderColor:"#D9A441",borderWidth:1.6,backgroundColor:g,fill:true,pointRadius:0,tension:.25}]},
+  const datasets=[{label:"Book",data:book.equity.map(e=>e.equity),borderColor:"#D9A441",borderWidth:1.6,backgroundColor:g,fill:true,pointRadius:0,tension:.25}];
+  let hasBench=false;
+  if(BOOK.benchmark&&BOOK.benchmark.series&&BOOK.benchmark.series.length){
+    const bf=priceAtFactory(BOOK.benchmark.series);
+    let firstC=null;for(const e of book.equity){const c=bf(e.t);if(c!=null){firstC=c;break;}}
+    if(firstC){
+      const bd=book.equity.map(e=>{const c=bf(e.t);return c==null?null:book.base*(c/firstC);});
+      datasets.push({label:"Benchmark",data:bd,borderColor:"#7C8895",borderWidth:1.2,borderDash:[4,3],pointRadius:0,tension:.1,fill:false,spanGaps:true});
+      hasBench=true;
+    }
+  }
+  const benchName=(BOOK.profile.benchmark||"^GSPC").replace("^","");
+  leg.innerHTML=`<span><i style="border-color:#D9A441"></i>Book</span>${hasBench?`<span><i style="border-color:#7C8895;border-top-style:dashed"></i>${esc(benchName)}</span>`:(isOwner()?`<span style="color:var(--faint)">Click “↻ Benchmark” to overlay an index</span>`:"")}`;
+  equityChart=new Chart(ctx,{type:"line",data:{labels:book.equity.map(e=>e.t),datasets},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
-      tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},callbacks:{label:(c)=>fmtMoney(c.raw-book.base)+" P&L"}}},
+      tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},
+        callbacks:{label:(c)=>`${c.dataset.label}: ${fmtMoney(c.raw-book.base)} P&L`}}},
       scales:{x:{display:false},y:{display:false}}}});
 }
+
 function renderCards(){
   let arr=[...BOOK.positions];
   if(sortKey==="pnl")arr.sort((a,b)=>(posPnL(b)??-1e12)-(posPnL(a)??-1e12));
@@ -296,6 +335,19 @@ function showModal(html,narrow){modal.className="modal"+(narrow?" narrow":"");mo
 function closeModal(){overlay.classList.remove("show");}
 overlay.onclick=(e)=>{if(e.target===overlay)closeModal();};
 
+async function refreshBenchmark(){
+  if(busy)return;busy=true;banner("");
+  try{
+    const sym=BOOK.profile.benchmark||"^GSPC";
+    const firsts=BOOK.positions.map(p=>p.entryDate).filter(Boolean).sort();
+    const from=firsts.length?firsts[0]:today();
+    const series=await fetchSeries(sym,from,today());
+    BOOK.benchmark={symbol:sym,series};
+    if(await save())render();
+  }catch(e){banner("Benchmark failed: "+e.message);}
+  busy=false;
+}
+
 function openSignIn(){
   showModal(`<div style="font-size:15px;font-weight:600;margin-bottom:6px">Owner sign-in</div>
     <div style="font-size:12px;color:var(--soft);margin-bottom:14px;line-height:1.5">Sign in with the account you created in Supabase. Visitors never need to sign in.</div>
@@ -312,7 +364,9 @@ function openProfile(){
   const p=BOOK.profile;
   showModal(`<div style="font-size:15px;font-weight:600;margin-bottom:14px">Public profile</div>
     <div class="field"><label>Display name</label><input id="pfName" class="inp" value="${esc(p.name)}" placeholder="Nicolas Defrenne — Shadow Book"></div>
-    <div class="field"><label>Tagline</label><input id="pfTag" class="inp" value="${esc(p.tagline)}" placeholder="L/S equity · documented convictions since 2026"></div>
+    <div class="field"><label>Tagline</label><input id="pfTag" class="inp" value="${esc(p.tagline)}" placeholder="L/S equity · documented convictions since 2024"></div>
+    <div class="field"><label>Benchmark (Yahoo symbol)</label><input id="pfBench" class="inp" value="${esc(p.benchmark||'^GSPC')}" placeholder="^GSPC"></div>
+    <div style="font-size:10px;color:var(--faint);margin-top:6px">^GSPC = S&P 500 · ^STOXX50E = Euro Stoxx 50 · ^FCHI = CAC 40 · ^NDX = Nasdaq 100. Click “↻ Benchmark” after saving to load it.</div>
     <div class="field"><label>Book currency</label><div style="display:flex;gap:6px">
       <button class="dirbtn" data-c="$" style="${p.currency==='$'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">$</button>
       <button class="dirbtn" data-c="€" style="${p.currency==='€'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">€</button></div></div>
@@ -320,7 +374,7 @@ function openProfile(){
   let chosen=p.currency||"$";
   modal.querySelectorAll(".dirbtn").forEach(b=>b.onclick=()=>{chosen=b.dataset.c;modal.querySelectorAll(".dirbtn").forEach(x=>x.style.cssText="");b.style.cssText="background:var(--panel2);color:var(--text);border-color:var(--line2)";});
   document.getElementById("pfCancel").onclick=closeModal;
-  document.getElementById("pfSave").onclick=async()=>{BOOK.profile={name:document.getElementById("pfName").value,tagline:document.getElementById("pfTag").value,currency:chosen};if(await save()){closeModal();render();}};
+  document.getElementById("pfSave").onclick=async()=>{BOOK.profile={name:document.getElementById("pfName").value,tagline:document.getElementById("pfTag").value,currency:chosen,benchmark:document.getElementById("pfBench").value.trim()||"^GSPC"};if(await save()){closeModal();render();}};
 }
 function openForm(existing){
   const e=existing||{ticker:"",company:"",direction:"long",sizing:"",entryDate:today(),entryPrice:"",exitDate:"",exitPrice:"",thesis:"",dataSymbol:""};
@@ -336,10 +390,10 @@ function openForm(existing){
       <div class="field"><label>Entry price</label><input id="fEP" class="inp" value="${esc(e.entryPrice)}" placeholder="0.00"></div>
       <div class="field"><label>Exit date (opt.)</label><input id="fXD" class="inp" type="date" value="${esc(e.exitDate||'')}"></div>
       <div class="field"><label>Exit price (opt.)</label><input id="fXP" class="inp" value="${esc(e.exitPrice||'')}" placeholder="0.00"></div>
-      <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP, ASML, AAPL…"></div>
+      <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP.DE, MC.PA, ASML.AS…"></div>
     </div>
     <div class="field"><label>Thesis</label><textarea id="fTh" class="inp" rows="2" placeholder="Your reasoning at entry.">${esc(e.thesis)}</textarea></div>
-    <div style="font-size:10px;color:var(--faint);margin-top:8px">Data symbol: the Twelve Data ticker used for the chart (defaults to Ticker; set e.g. <span class="mono">SAP</span> or <span class="mono">ASML</span> for non-US names).</div>
+    <div style="font-size:10px;color:var(--faint);margin-top:8px">Data symbol = the Yahoo Finance ticker for the chart. US: plain (NVDA). Europe: add the exchange suffix — Paris <span class="mono">.PA</span>, Xetra <span class="mono">.DE</span>, Amsterdam <span class="mono">.AS</span>, London <span class="mono">.L</span>, Milan <span class="mono">.MI</span>, Madrid <span class="mono">.MC</span>, Swiss <span class="mono">.SW</span>.</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" id="fCancel">Cancel</button><button class="btn" id="fSave">Save</button></div>`);
   let dir=e.direction;
   modal.querySelectorAll(".dirbtn").forEach(b=>b.onclick=()=>{dir=b.dataset.d;modal.querySelectorAll(".dirbtn").forEach(x=>x.style.cssText="");b.style.cssText=dir==='long'?'background:var(--gain);color:#0D1014;border-color:var(--line2)':'background:var(--loss);color:#0D1014;border-color:var(--line2)';});
@@ -364,9 +418,9 @@ async function loadChart(p){
   if(busy)return;busy=true;banner("");
   try{
     const sym=p.dataSymbol||p.ticker;
-    const series=await tdSeries(sym,p.entryDate,p.exitDate);
+    const series=await fetchSeries(sym,p.entryDate,p.exitDate);
     let mark=p.markPrice;
-    if(p.status!=="closed"){try{mark=await tdLast(sym);}catch{}}
+    if(p.status!=="closed"){try{mark=await fetchLast(sym);}catch{}}
     BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,series,markPrice:mark}:x);
     await save();render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));
   }catch(e){banner("Price data failed: "+e.message);}
@@ -398,7 +452,7 @@ function openDetail(i){
   if(g("dReload"))g("dReload").onclick=()=>loadChart(p);
   if(g("dEdit"))g("dEdit").onclick=()=>openForm(p);
   if(g("dDel"))g("dDel").onclick=async()=>{if(confirm("Delete this position?")){BOOK.positions=BOOK.positions.filter(x=>x.id!==p.id);if(await save()){closeModal();render();}}};
-  if(g("dMark"))g("dMark").onclick=async()=>{try{const m=await tdLast(p.dataSymbol||p.ticker);BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,markPrice:m}:x);await save();render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));}catch(e){banner(e.message);}};
+  if(g("dMark"))g("dMark").onclick=async()=>{try{const m=await fetchLast(p.dataSymbol||p.ticker);BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,markPrice:m}:x);await save();render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));}catch(e){banner(e.message);}};
   if(g("dCloseP"))g("dCloseP").onclick=async()=>{const px=prompt("Exit price?");if(px&&!isNaN(+px)){BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,status:"closed",exitPrice:+px,exitDate:today()}:x);await save();render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));}};
   if(g("dAddNote"))g("dAddNote").onclick=async()=>{const d=g("dAnnDate").value,t=g("dAnnText").value.trim();if(!d||!t){banner("Pick a date and write a note.");return;}BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,annotations:[...(x.annotations||[]),{id:uid(),date:d,text:t}]}:x);if(await save()){render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));}};
   modal.querySelectorAll("[data-an]").forEach(b=>b.onclick=async()=>{BOOK.positions=BOOK.positions.map(x=>x.id===p.id?{...x,annotations:(x.annotations||[]).filter(a=>a.id!==b.dataset.an)}:x);if(await save()){render();openDetail(BOOK.positions.findIndex(x=>x.id===p.id));}});
@@ -411,8 +465,7 @@ function openDetail(i){
     if(xX){ann.xL={type:"line",xMin:xX,xMax:xX,borderColor:"#E96A56",borderWidth:1,borderDash:[3,3],label:{display:true,content:"EXIT",color:"#E96A56",font:{size:8,family:"'IBM Plex Mono',monospace"},position:"start",backgroundColor:"rgba(0,0,0,0)"}};
       ann.xP={type:"point",xValue:xX,yValue:priceAt(p.series,p.exitDate),radius:4,backgroundColor:"#E96A56",borderColor:"#0D1014",borderWidth:1.5};}
     (p.annotations||[]).forEach((a,k)=>{ann["n"+k]={type:"point",xValue:snap(p.series,a.date),yValue:priceAt(p.series,a.date),radius:3.5,backgroundColor:"#D9A441",borderColor:"#0D1014",borderWidth:1.5};});
-    detailChart=new Chart(ctx,{type:"line",
-      data:{labels:p.series.map(s=>s.t),datasets:[{data:p.series.map(s=>s.c),borderColor:"#9AA7B4",borderWidth:1.4,pointRadius:0,tension:.2}]},
+    detailChart=new Chart(ctx,{type:"line",data:{labels:p.series.map(s=>s.t),datasets:[{data:p.series.map(s=>s.c),borderColor:"#9AA7B4",borderWidth:1.4,pointRadius:0,tension:.2}]},
       options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},annotation:{annotations:ann},
         tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},callbacks:{label:(c)=>fmtPx(c.raw)}}},
         scales:{x:{grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},maxTicksLimit:8}},
