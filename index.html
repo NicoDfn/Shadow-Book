@@ -23,7 +23,8 @@ button{font-family:inherit}
 h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-height:1.05}
 .tagline{font-size:13px;color:var(--soft);margin-top:5px;max-width:520px}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.hero{background:var(--panel);border:.5px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:20px;position:relative;overflow:hidden}
+.hero{background:var(--panel);border:.5px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px;position:relative;overflow:hidden}
+.panelTitle{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);margin-bottom:10px}
 .stats{display:flex;flex-wrap:wrap;gap:26px;margin-bottom:16px}
 .stat .lab{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
 .stat .val{font-family:'IBM Plex Mono',monospace;font-weight:600;line-height:1;letter-spacing:-.01em}
@@ -50,6 +51,7 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-heig
 .card .ret{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;line-height:1}
 .card .pnl{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--soft);margin-top:3px}
 .card .dates{display:flex;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:.5px solid var(--line);font-size:10.5px;color:var(--faint);font-family:'IBM Plex Mono',monospace}
+.wbadge{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);background:rgba(217,164,65,.1);padding:1px 6px;border-radius:4px}
 .foot{margin-top:22px;padding-top:14px;border-top:.5px solid var(--line);font-size:10px;color:var(--faint);line-height:1.6}
 .overlay{position:fixed;inset:0;background:rgba(6,9,12,.74);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:20px;z-index:100}
 .overlay.show{display:flex}
@@ -75,18 +77,15 @@ textarea.inp{resize:vertical;font-family:'Inter',sans-serif}
 .btn{font-size:12px;font-weight:600;padding:8px 16px;border-radius:7px;border:none;background:var(--gold);color:#0D1014;cursor:pointer}
 .btn.ghost{font-weight:500;border:.5px solid var(--line2);background:transparent;color:var(--text)}
 .btn:disabled{opacity:.5;cursor:default}
+.seg{display:flex;gap:6px}
+.segbtn{flex:1;padding:8px 0;border-radius:6px;border:.5px solid var(--line);background:transparent;color:var(--soft);cursor:pointer;font-weight:600;font-size:12px}
 .dirbtn{flex:1;padding:8px 0;border-radius:6px;border:.5px solid var(--line);background:transparent;color:var(--soft);cursor:pointer;font-weight:600;font-size:12px;text-transform:capitalize}
 .banner{background:#2A1A18;border:.5px solid #5A322B;border-radius:8px;padding:9px 13px;margin-bottom:16px;font-size:12px;color:#E9A08F}
 .notice{background:var(--panel2);border:.5px solid var(--line2);border-radius:10px;padding:16px;font-size:13px;color:var(--soft);line-height:1.6;margin-bottom:18px}
 .notice code{font-family:'IBM Plex Mono',monospace;color:var(--gold);font-size:12px}
 </style>
 
-<!-- ════════════════════════════════════════════════════════════════
-     CONFIG — fill the two Supabase values once (see SETUP.md).
-     PRICE_PROXY already has a working public default; swap it for your
-     own Cloudflare Worker URL (ending with ?url=) for reliability.
-     Prices come from Yahoo Finance (free, US + Europe) through the proxy.
-     ════════════════════════════════════════════════════════════════ -->
+<!-- CONFIG — fill the two Supabase values once (see SETUP.md). Prices via Yahoo Finance through PRICE_PROXY. -->
 <script>
 window.CONFIG = {
   SUPABASE_URL: "https://umhxamsghhtxwhyqsyuo.supabase.co",
@@ -113,7 +112,13 @@ window.CONFIG = {
     <div class="stats" id="stats"></div>
     <div class="eqwrap"><canvas id="equityChart"></canvas></div>
     <div class="eqlegend" id="eqlegend"></div>
-    <div class="heronote">Equity curve · sizing-weighted</div>
+    <div class="heronote">NAV curve · % of portfolio</div>
+  </div>
+
+  <div class="hero" id="exposurePanel" style="display:none">
+    <div class="panelTitle">Exposure — invested vs cash</div>
+    <div class="eqwrap" style="height:140px;margin-top:0"><canvas id="exposureChart"></canvas></div>
+    <div class="eqlegend" id="expLegend"></div>
   </div>
 
   <div class="secrow">
@@ -127,8 +132,7 @@ window.CONFIG = {
   <div id="cards" class="grid"></div>
 
   <div class="foot">
-    Realized performance = P&amp;L of closed positions, weighted by sizing. Sharpe annualized from the daily equity curve (rf = 0).
-    Prices from Yahoo Finance via proxy; entry/exit prices are the owner's executions.
+    Positions are sized as a % of portfolio NAV at their entry date (NAV = starting capital + prior realized & unrealized P&amp;L). Headline returns are portfolio-level; each card shows the position's own return. Sharpe annualized from the daily NAV curve (rf = 0). Prices from Yahoo Finance via proxy.
   </div>
 </div>
 
@@ -139,10 +143,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const C = window.CONFIG;
 const configured = !C.SUPABASE_URL.includes("YOUR-") && !C.SUPABASE_ANON_KEY.includes("YOUR-");
-let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC"},positions:[],benchmark:null};
-let session=null, sortKey="date", equityChart=null, detailChart=null, busy=false;
+let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC",startingCapital:1000000},positions:[],benchmark:null};
+let session=null, sortKey="date", equityChart=null, exposureChart=null, detailChart=null, busy=false, NOTIONALS={};
 
 const cur=()=>BOOK.profile.currency||"$";
+const startCap=()=>Number(BOOK.profile.startingCapital)||1000000;
 const fmtMoney=(v)=>v==null?"—":(v<0?"−":"")+cur()+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0});
 const fmtPct=(v,d=1)=>(v==null||isNaN(v))?"—":(v>0?"+":"")+v.toFixed(d)+"%";
 const fmtPx=(v)=>v==null?"—":Number(v).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -152,52 +157,80 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const esc=(s)=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const isOwner=()=>!!session;
 
-function posReturn(p){const c=p.status==="closed"?p.exitPrice:(p.markPrice??null);if(c==null||!p.entryPrice)return null;const r=c/p.entryPrice-1;return p.direction==="short"?-r:r;}
-const posPnL=(p)=>{const r=posReturn(p);return r==null?null:r*(p.sizing||0);};
 function priceAtFactory(series){const s=[...(series||[])].sort((a,b)=>a.t.localeCompare(b.t));return d=>{let v=null;for(const p of s){if(p.t<=d)v=p.c;else break;}return v;};}
+function positionReturnAt(p,price){if(price==null||!p.entryPrice)return null;const raw=price/p.entryPrice-1;return p.direction==="short"?-raw:raw;}
+function effPrice(p,fn,d){if(d<p.entryDate)return null;if(p.status==="closed"&&p.exitDate&&d>=p.exitDate)return p.exitPrice;return fn(d)??(p.markPrice??null);}
+function posReturn(p){const c=p.status==="closed"?p.exitPrice:(p.markPrice??null);return positionReturnAt(p,c);}
+const posPnL=(p)=>{const r=posReturn(p);return r==null?null:r*(NOTIONALS[p.id]||0);};
+
+/* intelligent sizing: weight % → $ notional from NAV at entry date */
+function computeNotionals(positions){
+  const N0=startCap();
+  const fns={};positions.forEach(p=>fns[p.id]=priceAtFactory(p.series));
+  const sorted=[...positions].sort((a,b)=>(a.entryDate||"").localeCompare(b.entryDate||""));
+  const notionals={};
+  for(const p of sorted){
+    if(p.weight!=null&&p.weight!==""){
+      let pnl=0;
+      for(const id in notionals){
+        const q=positions.find(x=>x.id===id);
+        const r=positionReturnAt(q,effPrice(q,fns[id],p.entryDate));
+        if(r!=null)pnl+=r*notionals[id];
+      }
+      notionals[p.id]=(Number(p.weight)/100)*(N0+pnl);
+    } else {
+      notionals[p.id]=Number(p.sizing)||0;
+    }
+  }
+  return notionals;
+}
 
 function buildBook(positions){
-  const base=positions.reduce((s,p)=>s+(p.sizing||0),0);
+  const N0=startCap();
+  const notionals=computeNotionals(positions);
+  const fns={};positions.forEach(p=>fns[p.id]=priceAtFactory(p.series));
   const set=new Set();
-  positions.forEach(p=>(p.series||[]).forEach(pt=>set.add(pt.t)));
-  positions.forEach(p=>{set.add(p.entryDate);if(p.exitDate)set.add(p.exitDate);});
+  positions.forEach(p=>{(p.series||[]).forEach(pt=>set.add(pt.t));set.add(p.entryDate);if(p.exitDate)set.add(p.exitDate);});
   const dates=[...set].filter(Boolean).sort();
-  const fns=positions.map(p=>priceAtFactory(p.series));
-  const equity=dates.map(d=>{
-    let pnl=0;
-    positions.forEach((p,i)=>{
-      if(d<p.entryDate)return;
-      let px;
-      if(p.status==="closed"&&p.exitDate&&d>=p.exitDate)px=p.exitPrice;
-      else px=fns[i](d)??(p.markPrice??null);
-      if(px==null||!p.entryPrice)return;
-      const r=p.direction==="short"?1-px/p.entryPrice:px/p.entryPrice-1;
-      pnl+=r*(p.sizing||0);
+  const equity=[],exposure=[];
+  for(const d of dates){
+    let pnl=0,invested=0;
+    positions.forEach(p=>{
+      const not=notionals[p.id]||0;
+      const r=positionReturnAt(p,effPrice(p,fns[p.id],d));
+      if(r==null)return;
+      pnl+=r*not;
+      const open=d>=p.entryDate&&(p.status!=="closed"||(p.exitDate&&d<p.exitDate));
+      if(open)invested+=not*(1+r);
     });
-    return {t:d,equity:base+pnl};
-  });
+    const nav=N0+pnl;
+    equity.push({t:d,equity:nav});
+    exposure.push({t:d,invested:nav>0?invested/nav*100:0,cash:nav>0?(nav-invested)/nav*100:0});
+  }
   let sharpe=null,vol=null;
-  if(equity.length>3&&base>0){
+  if(equity.length>3&&N0>0){
     const rets=[];
     for(let i=1;i<equity.length;i++){const a=equity[i-1].equity,b=equity[i].equity;if(a>0)rets.push(b/a-1);}
     if(rets.length>2){const m=rets.reduce((s,x)=>s+x,0)/rets.length;const v=rets.reduce((s,x)=>s+(x-m)**2,0)/(rets.length-1);const sd=Math.sqrt(v);vol=sd*Math.sqrt(252)*100;sharpe=sd>0?(m/sd)*Math.sqrt(252):null;}
   }
-  return {base,equity,sharpe,vol};
+  return {base:N0,equity,exposure,sharpe,vol,notionals};
 }
-function computeStats(positions){
-  const valued=positions.map(p=>({p,r:posReturn(p),pnl:posPnL(p)})).filter(x=>x.r!=null);
+
+function computeStats(positions,book){
+  const N0=startCap();
+  const navNow=book.equity.length?book.equity[book.equity.length-1].equity:N0;
+  const totalPnL=navNow-N0;
   const closed=positions.filter(p=>p.status==="closed");
-  const realizedPnL=closed.reduce((s,p)=>s+(posPnL(p)||0),0);
-  const totalPnL=valued.reduce((s,x)=>s+(x.pnl||0),0);
-  const deployed=positions.reduce((s,p)=>s+(p.sizing||0),0);
+  const realizedPnL=closed.reduce((s,p)=>{const r=posReturn(p);return s+(r!=null?r*(NOTIONALS[p.id]||0):0);},0);
+  const valued=positions.map(p=>({p,r:posReturn(p)})).filter(x=>x.r!=null);
   const wins=valued.filter(x=>x.r>0).length;
   const hold=positions.length?positions.reduce((s,p)=>s+days(p.entryDate,p.exitDate||today()),0)/positions.length:null;
-  return {realizedPnL,totalPnL,deployed,realizedPct:deployed?realizedPnL/deployed*100:null,totalPct:deployed?totalPnL/deployed*100:null,
+  return {realizedPnL,totalPnL,navNow,N0,realizedPct:N0?realizedPnL/N0*100:null,totalPct:N0?totalPnL/N0*100:null,
     hitRate:valued.length?wins/valued.length*100:null,nTrades:positions.length,nClosed:closed.length,avgHold:hold,
     best:valued.length?Math.max(...valued.map(x=>x.r))*100:null,worst:valued.length?Math.min(...valued.map(x=>x.r))*100:null};
 }
 
-/* ───────── Yahoo Finance via proxy (US + Europe, free) ───────── */
+/* ───────── Yahoo Finance via proxy ───────── */
 function yahooUrl(symbol,p1,p2){return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d`;}
 async function fetchSeries(symbol,fromDate,toDate){
   const p1=Math.floor(new Date(fromDate).getTime()/1000)-864000;
@@ -223,7 +256,7 @@ async function load(){
   if(!configured)return;
   const {data,error}=await sb.from("book").select("data").eq("id","main").single();
   if(error){banner("Could not load the book: "+error.message);return;}
-  if(data?.data){BOOK={profile:{currency:"$",benchmark:"^GSPC",...data.data.profile},positions:data.data.positions||[],benchmark:data.data.benchmark||null};}
+  if(data?.data){BOOK={profile:{currency:"$",benchmark:"^GSPC",startingCapital:1000000,...data.data.profile},positions:data.data.positions||[],benchmark:data.data.benchmark||null};}
 }
 async function save(){
   if(!isOwner()){banner("Sign in to edit.");return false;}
@@ -254,12 +287,12 @@ function renderToolbar(){
 }
 
 function render(){
-  if(!configured){document.getElementById("configNotice").innerHTML=`<div class="notice">This Shadow Book isn't connected yet. Open <code>SETUP.md</code> and fill the two Supabase values in the <code>CONFIG</code> block at the top of <code>index.html</code>, then redeploy.</div>`;}
+  if(!configured){document.getElementById("configNotice").innerHTML=`<div class="notice">This Shadow Book isn't connected yet. Open <code>SETUP.md</code> and fill the two Supabase values in the <code>CONFIG</code> block of <code>index.html</code>, then redeploy.</div>`;}
   document.getElementById("profName").textContent=BOOK.profile.name||"Track record";
   document.getElementById("profTag").textContent=BOOK.profile.tagline||"";
-  const s=computeStats(BOOK.positions),book=buildBook(BOOK.positions);
+  const book=buildBook(BOOK.positions);NOTIONALS=book.notionals;
+  const s=computeStats(BOOK.positions,book);
 
-  // alpha vs benchmark
   let alpha=null,benchRet=null;
   if(BOOK.benchmark&&BOOK.benchmark.series&&BOOK.benchmark.series.length&&book.equity.length>1){
     const bf=priceAtFactory(BOOK.benchmark.series);
@@ -277,11 +310,11 @@ function render(){
   if(alpha!=null)html+=statBlock("Alpha vs "+benchName,fmtPct(alpha),benchName+" "+fmtPct(benchRet),alpha,false);
   html+=
     statBlock("Hit rate",s.hitRate==null?"—":Math.round(s.hitRate)+"%",`${s.nClosed}/${s.nTrades} closed`,null,false)+
-    statBlock("Capital deployed",fmtMoney(s.deployed),`${s.nTrades} positions`,null,false)+
+    statBlock("NAV",fmtMoney(s.navNow),"start "+fmtMoney(s.N0),null,false)+
     statBlock("Avg hold",s.avgHold==null?"—":Math.round(s.avgHold)+"d",s.best==null?"":`+${s.best.toFixed(0)}% / ${s.worst.toFixed(0)}%`,null,false);
   document.getElementById("stats").innerHTML=html;
 
-  renderEquity(book);renderCards();renderToolbar();
+  renderEquity(book);renderExposure(book);renderCards();renderToolbar();
   document.getElementById("posCount").textContent=BOOK.positions.length;
 }
 
@@ -297,11 +330,8 @@ function renderEquity(book){
   if(BOOK.benchmark&&BOOK.benchmark.series&&BOOK.benchmark.series.length){
     const bf=priceAtFactory(BOOK.benchmark.series);
     let firstC=null;for(const e of book.equity){const c=bf(e.t);if(c!=null){firstC=c;break;}}
-    if(firstC){
-      const bd=book.equity.map(e=>{const c=bf(e.t);return c==null?null:book.base*(c/firstC);});
-      datasets.push({label:"Benchmark",data:bd,borderColor:"#7C8895",borderWidth:1.2,borderDash:[4,3],pointRadius:0,tension:.1,fill:false,spanGaps:true});
-      hasBench=true;
-    }
+    if(firstC){const bd=book.equity.map(e=>{const c=bf(e.t);return c==null?null:book.base*(c/firstC);});
+      datasets.push({label:"Benchmark",data:bd,borderColor:"#7C8895",borderWidth:1.2,borderDash:[4,3],pointRadius:0,tension:.1,fill:false,spanGaps:true});hasBench=true;}
   }
   const benchName=(BOOK.profile.benchmark||"^GSPC").replace("^","");
   leg.innerHTML=`<span><i style="border-color:#D9A441"></i>Book</span>${hasBench?`<span><i style="border-color:#7C8895;border-top-style:dashed"></i>${esc(benchName)}</span>`:(isOwner()?`<span style="color:var(--faint)">Click “↻ Benchmark” to overlay an index</span>`:"")}`;
@@ -310,6 +340,21 @@ function renderEquity(book){
       tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},
         callbacks:{label:(c)=>`${c.dataset.label}: ${fmtMoney(c.raw-book.base)} P&L`}}},
       scales:{x:{display:false},y:{display:false}}}});
+}
+
+function renderExposure(book){
+  const panel=document.getElementById("exposurePanel"),el=document.getElementById("exposureChart"),leg=document.getElementById("expLegend");
+  if(exposureChart)exposureChart.destroy();
+  if(!book.exposure||book.exposure.length<2){panel.style.display="none";return;}
+  panel.style.display="block";
+  leg.innerHTML=`<span><i style="border-color:#D9A441"></i>Invested</span><span><i style="border-color:#46C08A"></i>Cash</span>`;
+  const ctx=el.getContext("2d");
+  exposureChart=new Chart(ctx,{type:"line",data:{labels:book.exposure.map(e=>e.t),datasets:[
+      {label:"Invested",data:book.exposure.map(e=>Math.max(0,e.invested)),borderColor:"#D9A441",backgroundColor:"rgba(217,164,65,.25)",borderWidth:1,pointRadius:0,fill:"origin",tension:.2},
+      {label:"Cash",data:book.exposure.map(e=>Math.max(0,e.cash)),borderColor:"#46C08A",backgroundColor:"rgba(70,192,138,.16)",borderWidth:1,pointRadius:0,fill:"-1",tension:.2}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},callbacks:{label:(c)=>`${c.dataset.label}: ${c.raw.toFixed(0)}%`}}},
+      scales:{x:{display:false},y:{stacked:true,min:0,max:100,grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},callback:v=>v+"%"}}}}});
 }
 
 function renderCards(){
@@ -322,7 +367,8 @@ function renderCards(){
   host.className="grid";
   host.innerHTML=arr.map(p=>{
     const r=posReturn(p),pnl=posPnL(p),dir=p.direction==="long",gi=BOOK.positions.indexOf(p);
-    return `<div class="card" data-i="${gi}"><div class="top"><div style="min-width:0"><div class="tk">${esc(p.ticker)}</div><div class="co">${esc(p.company||"—")}</div></div><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span></div>
+    const w=(p.weight!=null&&p.weight!=="")?`<span class="wbadge">${Number(p.weight).toFixed(0)}%</span>`:"";
+    return `<div class="card" data-i="${gi}"><div class="top"><div style="min-width:0"><div class="tk">${esc(p.ticker)} ${w}</div><div class="co">${esc(p.company||"—")}</div></div><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span></div>
       <div class="ret" style="color:${r==null?'var(--faint)':r>=0?'var(--gain)':'var(--loss)'}">${r==null?'—':fmtPct(r*100)}</div>
       <div class="pnl">${pnl==null?'to value':fmtMoney(pnl)}</div>
       <div class="dates"><span>${esc(p.entryDate)}</span><span>→</span><span>${p.status==='closed'?esc(p.exitDate):'open'}</span></div></div>`;
@@ -364,46 +410,63 @@ function openProfile(){
   const p=BOOK.profile;
   showModal(`<div style="font-size:15px;font-weight:600;margin-bottom:14px">Public profile</div>
     <div class="field"><label>Display name</label><input id="pfName" class="inp" value="${esc(p.name)}" placeholder="Nicolas Defrenne — Shadow Book"></div>
-    <div class="field"><label>Tagline</label><input id="pfTag" class="inp" value="${esc(p.tagline)}" placeholder="L/S equity · documented convictions since 2024"></div>
+    <div class="field"><label>Tagline</label><input id="pfTag" class="inp" value="${esc(p.tagline)}" placeholder="L/S equity · documented convictions"></div>
+    <div class="field"><label>Starting capital (NAV at inception)</label><input id="pfCap" class="inp" value="${esc(p.startingCapital||1000000)}" placeholder="1000000"></div>
     <div class="field"><label>Benchmark (Yahoo symbol)</label><input id="pfBench" class="inp" value="${esc(p.benchmark||'^GSPC')}" placeholder="^GSPC"></div>
-    <div style="font-size:10px;color:var(--faint);margin-top:6px">^GSPC = S&P 500 · ^STOXX50E = Euro Stoxx 50 · ^FCHI = CAC 40 · ^NDX = Nasdaq 100. Click “↻ Benchmark” after saving to load it.</div>
-    <div class="field"><label>Book currency</label><div style="display:flex;gap:6px">
-      <button class="dirbtn" data-c="$" style="${p.currency==='$'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">$</button>
-      <button class="dirbtn" data-c="€" style="${p.currency==='€'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">€</button></div></div>
+    <div style="font-size:10px;color:var(--faint);margin-top:6px">^GSPC = S&P 500 · ^STOXX50E = Euro Stoxx 50 · ^FCHI = CAC 40. Click “↻ Benchmark” after saving.</div>
+    <div class="field"><label>Book currency</label><div class="seg">
+      <button class="segbtn" data-c="$" style="${p.currency==='$'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">$</button>
+      <button class="segbtn" data-c="€" style="${p.currency==='€'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">€</button></div></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" id="pfCancel">Cancel</button><button class="btn" id="pfSave">Save</button></div>`);
   let chosen=p.currency||"$";
-  modal.querySelectorAll(".dirbtn").forEach(b=>b.onclick=()=>{chosen=b.dataset.c;modal.querySelectorAll(".dirbtn").forEach(x=>x.style.cssText="");b.style.cssText="background:var(--panel2);color:var(--text);border-color:var(--line2)";});
+  modal.querySelectorAll(".segbtn").forEach(b=>b.onclick=()=>{chosen=b.dataset.c;modal.querySelectorAll(".segbtn").forEach(x=>x.style.cssText="");b.style.cssText="background:var(--panel2);color:var(--text);border-color:var(--line2)";});
   document.getElementById("pfCancel").onclick=closeModal;
-  document.getElementById("pfSave").onclick=async()=>{BOOK.profile={name:document.getElementById("pfName").value,tagline:document.getElementById("pfTag").value,currency:chosen,benchmark:document.getElementById("pfBench").value.trim()||"^GSPC"};if(await save()){closeModal();render();}};
+  document.getElementById("pfSave").onclick=async()=>{BOOK.profile={name:document.getElementById("pfName").value,tagline:document.getElementById("pfTag").value,currency:chosen,benchmark:document.getElementById("pfBench").value.trim()||"^GSPC",startingCapital:Number(document.getElementById("pfCap").value)||1000000};if(await save()){closeModal();render();}};
 }
 function openForm(existing){
-  const e=existing||{ticker:"",company:"",direction:"long",sizing:"",entryDate:today(),entryPrice:"",exitDate:"",exitPrice:"",thesis:"",dataSymbol:""};
+  const e=existing||{ticker:"",company:"",direction:"long",weight:"",sizing:"",entryDate:today(),entryPrice:"",exitDate:"",exitPrice:"",thesis:"",dataSymbol:""};
+  let mode=existing?((existing.weight!=null&&existing.weight!=="")?"pct":"amt"):"pct";
+  const sizeField=()=>mode==="pct"
+    ? `<div class="field"><label>Weight (% of portfolio)</label><input id="fW" class="inp" value="${esc(e.weight??"")}" placeholder="10"></div>`
+    : `<div class="field"><label>Amount (${cur()})</label><input id="fW" class="inp" value="${esc(e.sizing??"")}" placeholder="100000"></div>`;
   showModal(`<div style="font-size:15px;font-weight:600;margin-bottom:16px">${existing?'Edit position':'New position'}</div>
-    <div class="grid3">
+    <div class="field"><label>Sizing mode</label><div class="seg" id="modeSeg">
+      <button class="segbtn" data-m="pct" style="${mode==='pct'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">% of portfolio</button>
+      <button class="segbtn" data-m="amt" style="${mode==='amt'?'background:var(--panel2);color:var(--text);border-color:var(--line2)':''}">Amount (${cur()})</button></div></div>
+    <div class="grid3" style="margin-top:12px">
       <div class="field"><label>Ticker</label><input id="fTk" class="inp" value="${esc(e.ticker)}" placeholder="NVDA"></div>
       <div class="field"><label>Company</label><input id="fCo" class="inp" value="${esc(e.company)}" placeholder="Nvidia"></div>
-      <div class="field"><label>Direction</label><div style="display:flex;gap:6px">
+      <div class="field"><label>Direction</label><div class="seg">
         <button class="dirbtn" data-d="long" style="${e.direction==='long'?'background:var(--gain);color:#0D1014;border-color:var(--line2)':''}">long</button>
         <button class="dirbtn" data-d="short" style="${e.direction==='short'?'background:var(--loss);color:#0D1014;border-color:var(--line2)':''}">short</button></div></div>
-      <div class="field"><label>Sizing (${cur()})</label><input id="fSz" class="inp" value="${esc(e.sizing)}" placeholder="10000"></div>
+      <div id="sizeSlot">${sizeField()}</div>
       <div class="field"><label>Entry date</label><input id="fED" class="inp" type="date" value="${esc(e.entryDate)}"></div>
       <div class="field"><label>Entry price</label><input id="fEP" class="inp" value="${esc(e.entryPrice)}" placeholder="0.00"></div>
       <div class="field"><label>Exit date (opt.)</label><input id="fXD" class="inp" type="date" value="${esc(e.exitDate||'')}"></div>
       <div class="field"><label>Exit price (opt.)</label><input id="fXP" class="inp" value="${esc(e.exitPrice||'')}" placeholder="0.00"></div>
-      <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP.DE, MC.PA, ASML.AS…"></div>
+      <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP.DE, MC.PA…"></div>
     </div>
     <div class="field"><label>Thesis</label><textarea id="fTh" class="inp" rows="2" placeholder="Your reasoning at entry.">${esc(e.thesis)}</textarea></div>
-    <div style="font-size:10px;color:var(--faint);margin-top:8px">Data symbol = the Yahoo Finance ticker for the chart. US: plain (NVDA). Europe: add the exchange suffix — Paris <span class="mono">.PA</span>, Xetra <span class="mono">.DE</span>, Amsterdam <span class="mono">.AS</span>, London <span class="mono">.L</span>, Milan <span class="mono">.MI</span>, Madrid <span class="mono">.MC</span>, Swiss <span class="mono">.SW</span>.</div>
+    <div style="font-size:10px;color:var(--faint);margin-top:8px">% mode: the $ amount is computed from portfolio NAV at the entry date. Data symbol = Yahoo ticker (US plain; Europe with suffix: Paris <span class="mono">.PA</span>, Xetra <span class="mono">.DE</span>, Amsterdam <span class="mono">.AS</span>, London <span class="mono">.L</span>, Milan <span class="mono">.MI</span>, Madrid <span class="mono">.MC</span>, Swiss <span class="mono">.SW</span>).</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" id="fCancel">Cancel</button><button class="btn" id="fSave">Save</button></div>`);
   let dir=e.direction;
-  modal.querySelectorAll(".dirbtn").forEach(b=>b.onclick=()=>{dir=b.dataset.d;modal.querySelectorAll(".dirbtn").forEach(x=>x.style.cssText="");b.style.cssText=dir==='long'?'background:var(--gain);color:#0D1014;border-color:var(--line2)':'background:var(--loss);color:#0D1014;border-color:var(--line2)';});
+  const wireDir=()=>modal.querySelectorAll(".dirbtn").forEach(b=>b.onclick=()=>{dir=b.dataset.d;modal.querySelectorAll(".dirbtn").forEach(x=>x.style.cssText="");b.style.cssText=dir==='long'?'background:var(--gain);color:#0D1014;border-color:var(--line2)':'background:var(--loss);color:#0D1014;border-color:var(--line2)';});
+  wireDir();
+  document.getElementById("modeSeg").querySelectorAll(".segbtn").forEach(b=>b.onclick=()=>{
+    mode=b.dataset.m;
+    document.getElementById("modeSeg").querySelectorAll(".segbtn").forEach(x=>x.style.cssText="");
+    b.style.cssText="background:var(--panel2);color:var(--text);border-color:var(--line2)";
+    document.getElementById("sizeSlot").innerHTML=sizeField();
+  });
   document.getElementById("fCancel").onclick=closeModal;
   document.getElementById("fSave").onclick=async()=>{
     const tk=document.getElementById("fTk").value.toUpperCase().trim();
-    const ep=Number(document.getElementById("fEP").value),sz=Number(document.getElementById("fSz").value);
-    if(!tk||!ep||!sz){banner("Ticker, entry price and sizing are required.");return;}
+    const ep=Number(document.getElementById("fEP").value);
+    const sizeVal=Number(document.getElementById("fW").value);
+    if(!tk||!ep||!sizeVal){banner("Ticker, entry price and size are required.");return;}
     const xd=document.getElementById("fXD").value,xp=document.getElementById("fXP").value;const closed=xd&&xp;
-    const obj={id:existing?existing.id:uid(),ticker:tk,company:document.getElementById("fCo").value,direction:dir,sizing:sz,
+    const obj={id:existing?existing.id:uid(),ticker:tk,company:document.getElementById("fCo").value,direction:dir,
+      weight:mode==="pct"?sizeVal:null,sizing:mode==="amt"?sizeVal:null,
       entryDate:document.getElementById("fED").value,entryPrice:ep,exitDate:closed?xd:null,exitPrice:closed?Number(xp):null,
       status:closed?"closed":"open",thesis:document.getElementById("fTh").value,dataSymbol:document.getElementById("fDS").value.trim(),
       annotations:existing?existing.annotations||[]:[],series:existing?existing.series||null:null,markPrice:existing?existing.markPrice:null};
@@ -429,11 +492,13 @@ async function loadChart(p){
 function openDetail(i){
   const p=BOOK.positions[i];if(!p)return;
   const r=posReturn(p),pnl=posPnL(p),dir=p.direction==="long",owner=isOwner();
+  const notion=NOTIONALS[p.id];
+  const sizeLabel=(p.weight!=null&&p.weight!=="")?`weight <b>${Number(p.weight).toFixed(0)}%</b> · ${fmtMoney(notion)}`:`sizing <b>${fmtMoney(notion)}</b>`;
   const anns=(p.annotations||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
   showModal(`
     <div class="mhead">
       <div><div style="display:flex;align-items:center;gap:10px"><span class="mtk">${esc(p.ticker)}</span><span style="font-size:13px;color:var(--soft)">${esc(p.company||"")}</span><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span></div>
-      <div class="mmeta"><span>entry <b>${fmtPx(p.entryPrice)}</b> · ${esc(p.entryDate)}</span>${p.status==='closed'?`<span>exit <b>${fmtPx(p.exitPrice)}</b> · ${esc(p.exitDate)}</span>`:`<span>last <b>${fmtPx(p.markPrice)}</b></span>`}<span>sizing <b>${fmtMoney(p.sizing)}</b></span></div></div>
+      <div class="mmeta"><span>entry <b>${fmtPx(p.entryPrice)}</b> · ${esc(p.entryDate)}</span>${p.status==='closed'?`<span>exit <b>${fmtPx(p.exitPrice)}</b> · ${esc(p.exitDate)}</span>`:`<span>last <b>${fmtPx(p.markPrice)}</b></span>`}<span>${sizeLabel}</span></div></div>
       <div style="display:flex;gap:12px;align-items:flex-start"><div style="text-align:right"><div class="mret" style="color:${r==null?'var(--faint)':r>=0?'var(--gain)':'var(--loss)'}">${r==null?'—':fmtPct(r*100)}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--soft);margin-top:3px">${pnl==null?'':fmtMoney(pnl)}</div></div><button class="close" id="dClose">×</button></div>
     </div>
     <div class="chartbox">${(p.series&&p.series.length)?'<canvas id="detailChart"></canvas>':`<div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--faint)"><span style="font-size:12px">No price chart loaded yet.</span>${owner?'<button class="btn" id="dLoad">Load chart</button>':''}</div>`}</div>
