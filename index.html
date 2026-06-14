@@ -165,18 +165,20 @@ const posPnL=(p)=>{const r=posReturn(p);return r==null?null:r*(NOTIONALS[p.id]||
 /* intelligent sizing: weight % → $ notional from NAV at entry date */
 function computeNotionals(positions){
   const N0=startCap();
-  const fns={};positions.forEach(p=>fns[p.id]=priceAtFactory(p.series));
   const sorted=[...positions].sort((a,b)=>(a.entryDate||"").localeCompare(b.entryDate||""));
   const notionals={};
   for(const p of sorted){
     if(p.weight!=null&&p.weight!==""){
-      let pnl=0;
-      for(const id in notionals){
-        const q=positions.find(x=>x.id===id);
-        const r=positionReturnAt(q,effPrice(q,fns[id],p.entryDate));
-        if(r!=null)pnl+=r*notionals[id];
+      // base = capital de départ + P&L RÉALISÉ des positions clôturées avant cette entrée.
+      // Les gains latents sur les positions encore ouvertes sont immobilisés : ils n'inflent pas le sizing.
+      let realized=0;
+      for(const q of positions){
+        if(q.status==="closed"&&q.exitDate&&q.exitDate<p.entryDate){
+          const r=positionReturnAt(q,q.exitPrice);
+          if(r!=null)realized+=r*(notionals[q.id]||0);
+        }
       }
-      notionals[p.id]=(Number(p.weight)/100)*(N0+pnl);
+      notionals[p.id]=(Number(p.weight)/100)*(N0+realized);
     } else {
       notionals[p.id]=Number(p.sizing)||0;
     }
