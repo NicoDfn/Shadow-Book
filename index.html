@@ -35,6 +35,7 @@ h1{font-size:28px;font-weight:700;letter-spacing:-.02em;margin-top:7px;line-heig
 .heronote{position:absolute;top:16px;right:18px;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
 .eqlegend{display:flex;gap:16px;margin-top:6px;font-size:10px;color:var(--soft)}
 .eqlegend i{display:inline-block;width:14px;height:0;border-top:2px solid;margin-right:5px;vertical-align:middle}
+.wlegend{display:flex;flex-wrap:wrap;gap:6px 13px;margin-top:9px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--soft)}
 .secrow{display:flex;justify-content:space-between;align-items:center;margin:0 0 12px}
 .secrow .t{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
 .sorts{display:flex;gap:4px}
@@ -124,6 +125,12 @@ window.CONFIG = {
     <div class="eqlegend" id="eqlegend"></div>
   </div>
 
+  <div class="hero" id="weightsPanel" style="display:none">
+    <div class="panelTitle">Composition — positions as % of portfolio</div>
+    <div class="eqwrap" style="height:165px;margin-top:0"><canvas id="weightsChart"></canvas></div>
+    <div class="wlegend" id="wLegend"></div>
+  </div>
+
   <div class="hero" id="exposurePanel" style="display:none">
     <div class="panelTitle">Exposure — invested vs cash</div>
     <div class="eqwrap" style="height:140px;margin-top:0"><canvas id="exposureChart"></canvas></div>
@@ -159,7 +166,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const C = window.CONFIG;
 const configured = !C.SUPABASE_URL.includes("YOUR-") && !C.SUPABASE_ANON_KEY.includes("YOUR-");
 let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC",startingCapital:1000000},positions:[],benchmark:null,dossiers:{}};
-let session=null, sortKey="date", viewMode="flat", equityChart=null, exposureChart=null, detailChart=null, busy=false, NOTIONALS={};
+let session=null, sortKey="date", viewMode="flat", equityChart=null, weightsChart=null, exposureChart=null, detailChart=null, busy=false, NOTIONALS={};
 
 const cur=()=>BOOK.profile.currency||"$";
 const startCap=()=>Number(BOOK.profile.startingCapital)||1000000;
@@ -210,19 +217,24 @@ function buildBook(positions){
   positions.forEach(p=>{(p.series||[]).forEach(pt=>set.add(pt.t));set.add(p.entryDate);if(p.exitDate)set.add(p.exitDate);});
   const dates=[...set].filter(Boolean).sort();
   const equity=[],exposure=[];
+  const wseries={};positions.forEach(p=>wseries[p.id]=[]);
+  let peakInvested=0;
   for(const d of dates){
-    let pnl=0,invested=0;
+    let pnl=0,invested=0;const vals={};
     positions.forEach(p=>{
       const not=notionals[p.id]||0;
       const r=positionReturnAt(p,effPrice(p,fns[p.id],d));
-      if(r==null)return;
+      if(r==null){vals[p.id]=0;return;}
       pnl+=r*not;
       const open=d>=p.entryDate&&(p.status!=="closed"||(p.exitDate&&d<p.exitDate));
-      if(open)invested+=not*(1+r);
+      const v=open?not*(1+r):0;vals[p.id]=v;if(open)invested+=v;
     });
     const nav=N0+pnl;
     equity.push({t:d,equity:nav});
-    exposure.push({t:d,invested:nav>0?invested/nav*100:0,cash:nav>0?(nav-invested)/nav*100:0});
+    const invPct=nav>0?invested/nav*100:0;
+    exposure.push({t:d,invested:invPct,cash:nav>0?(nav-invested)/nav*100:0});
+    if(invPct>peakInvested)peakInvested=invPct;
+    positions.forEach(p=>wseries[p.id].push(nav>0?vals[p.id]/nav*100:0));
   }
   let sharpe=null,vol=null;
   if(equity.length>3&&N0>0){
@@ -230,7 +242,7 @@ function buildBook(positions){
     for(let i=1;i<equity.length;i++){const a=equity[i-1].equity,b=equity[i].equity;if(a>0)rets.push(b/a-1);}
     if(rets.length>2){const m=rets.reduce((s,x)=>s+x,0)/rets.length;const v=rets.reduce((s,x)=>s+(x-m)**2,0)/(rets.length-1);const sd=Math.sqrt(v);vol=sd*Math.sqrt(252)*100;sharpe=sd>0?(m/sd)*Math.sqrt(252):null;}
   }
-  return {base:N0,equity,exposure,sharpe,vol,notionals};
+  return {base:N0,equity,exposure,sharpe,vol,notionals,weights:wseries,peakInvested};
 }
 
 function computeStats(positions,book){
@@ -331,7 +343,7 @@ function render(){
     statBlock("Avg hold",s.avgHold==null?"—":Math.round(s.avgHold)+"d",s.best==null?"":`+${s.best.toFixed(0)}% / ${s.worst.toFixed(0)}%`,null,false);
   document.getElementById("stats").innerHTML=html;
 
-  renderEquity(book);renderExposure(book);renderCards();renderToolbar();
+  renderEquity(book);renderWeights(book);renderExposure(book);renderCards();renderToolbar();
   document.getElementById("posCount").textContent=BOOK.positions.length;
 }
 
@@ -372,6 +384,30 @@ function renderExposure(book){
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
       plugins:{legend:{display:false},tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},callbacks:{label:(c)=>`${c.dataset.label}: ${c.raw.toFixed(0)}%`}}},
       scales:{x:{display:false},y:{stacked:true,min:0,max:100,grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},callback:v=>v+"%"}}}}});
+}
+
+function renderWeights(book){
+  const panel=document.getElementById("weightsPanel"),el=document.getElementById("weightsChart"),leg=document.getElementById("wLegend");
+  if(weightsChart)weightsChart.destroy();
+  const ids=Object.keys(book.weights||{});
+  if(!book.equity||book.equity.length<2||!ids.length){panel.style.display="none";return;}
+  panel.style.display="block";
+  const labels=book.equity.map(e=>e.t);
+  const ordered=[...BOOK.positions].sort((a,b)=>(a.entryDate||"").localeCompare(b.entryDate||""));
+  const hue=(i)=>Math.round((i*360)/Math.max(1,ordered.length));
+  const datasets=ordered.map((p,i)=>({label:p.ticker,data:(book.weights[p.id]||[]).map(v=>v>0.01?v:0),
+    borderColor:`hsl(${hue(i)},52%,60%)`,backgroundColor:`hsla(${hue(i)},52%,58%,0.6)`,borderWidth:.6,pointRadius:0,
+    fill:i===0?"origin":"-1",tension:0}));
+  leg.innerHTML=ordered.map((p,i)=>`<span style="white-space:nowrap"><i style="background:hsl(${hue(i)},52%,60%);width:9px;height:9px;display:inline-block;border-radius:2px;margin-right:4px;vertical-align:middle"></i>${esc(p.ticker)}</span>`).join("");
+  const maxY=Math.max(105,Math.ceil((book.peakInvested||0)/10)*10+5);
+  const ctx=el.getContext("2d");
+  weightsChart=new Chart(ctx,{type:"line",data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+      plugins:{legend:{display:false},
+        annotation:{annotations:{full:{type:"line",yMin:100,yMax:100,borderColor:"#5E6C7A",borderWidth:1,borderDash:[4,3],label:{display:true,content:"100% invested",position:"start",color:"#9AA7B4",font:{size:8,family:"'IBM Plex Mono',monospace"},backgroundColor:"rgba(0,0,0,0)"}}}},
+        tooltip:{backgroundColor:"#1A222C",borderColor:"#2E3B49",borderWidth:.5,titleColor:"#9AA7B4",bodyFont:{family:"'IBM Plex Mono',monospace"},titleFont:{family:"'IBM Plex Mono',monospace"},
+          filter:(it)=>it.parsed.y>0.05,itemSort:(a,b)=>b.parsed.y-a.parsed.y,callbacks:{label:(c)=>`${c.dataset.label}: ${c.parsed.y.toFixed(1)}%`}}},
+      scales:{x:{display:false},y:{stacked:true,min:0,suggestedMax:maxY,grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},callback:v=>v+"%"}}}}});
 }
 
 function sortLegs(arr){
