@@ -83,6 +83,16 @@ textarea.inp{resize:vertical;font-family:'Inter',sans-serif}
 .banner{background:#2A1A18;border:.5px solid #5A322B;border-radius:8px;padding:9px 13px;margin-bottom:16px;font-size:12px;color:#E9A08F}
 .notice{background:var(--panel2);border:.5px solid var(--line2);border-radius:10px;padding:16px;font-size:13px;color:var(--soft);line-height:1.6;margin-bottom:18px}
 .notice code{font-family:'IBM Plex Mono',monospace;color:var(--gold);font-size:12px}
+.dosbadge{display:inline-block;margin-top:6px;font-size:9.5px;font-weight:600;color:var(--gold);border:.5px solid var(--goldSoft);border-radius:4px;padding:1px 6px;cursor:pointer}
+.dosHead{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px;margin-top:6px;background:linear-gradient(90deg,rgba(217,164,65,.08),rgba(217,164,65,0));border:.5px solid var(--line2);border-left:2px solid var(--gold);border-radius:8px;cursor:pointer}
+.dosHead.standalone{background:none;border-left-color:var(--line);cursor:default}
+.dosName{font-size:13px;font-weight:700;color:var(--gold);letter-spacing:.02em}
+.dosMeta{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--faint);margin-left:10px}
+.dosPnl{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600}
+.dosOpen{font-size:10px;color:var(--soft);text-transform:uppercase;letter-spacing:.08em}
+.dosLegs{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.dosLeg{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;background:var(--bg);border:.5px solid var(--line);border-radius:8px;cursor:pointer}
+.dosLeg:hover{border-color:var(--line2)}
 </style>
 
 <!-- CONFIG — fill the two Supabase values once (see SETUP.md). Prices via Yahoo Finance through PRICE_PROXY. -->
@@ -122,10 +132,16 @@ window.CONFIG = {
 
   <div class="secrow">
     <div class="t">Positions · <span id="posCount">0</span></div>
-    <div class="sorts">
-      <button class="sortbtn on" data-sort="date">Recent</button>
-      <button class="sortbtn" data-sort="pnl">P&amp;L</button>
-      <button class="sortbtn" data-sort="ret">Return</button>
+    <div style="display:flex;gap:12px;align-items:center">
+      <div class="sorts" id="viewToggle">
+        <button class="sortbtn on" data-view="flat">Flat</button>
+        <button class="sortbtn" data-view="dossiers">Dossiers</button>
+      </div>
+      <div class="sorts">
+        <button class="sortbtn on" data-sort="date">Recent</button>
+        <button class="sortbtn" data-sort="pnl">P&amp;L</button>
+        <button class="sortbtn" data-sort="ret">Return</button>
+      </div>
     </div>
   </div>
   <div id="cards" class="grid"></div>
@@ -142,8 +158,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const C = window.CONFIG;
 const configured = !C.SUPABASE_URL.includes("YOUR-") && !C.SUPABASE_ANON_KEY.includes("YOUR-");
-let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC",startingCapital:1000000},positions:[],benchmark:null};
-let session=null, sortKey="date", equityChart=null, exposureChart=null, detailChart=null, busy=false, NOTIONALS={};
+let sb=null, BOOK={profile:{name:"",tagline:"",currency:"$",benchmark:"^GSPC",startingCapital:1000000},positions:[],benchmark:null,dossiers:{}};
+let session=null, sortKey="date", viewMode="flat", equityChart=null, exposureChart=null, detailChart=null, busy=false, NOTIONALS={};
 
 const cur=()=>BOOK.profile.currency||"$";
 const startCap=()=>Number(BOOK.profile.startingCapital)||1000000;
@@ -169,8 +185,8 @@ function computeNotionals(positions){
   const notionals={};
   for(const p of sorted){
     if(p.weight!=null&&p.weight!==""){
-      // base = capital de départ + P&L RÉALISÉ des positions clôturées avant cette entrée.
-      // Les gains latents sur les positions encore ouvertes sont immobilisés : ils n'inflent pas le sizing.
+      // base = starting capital + REALIZED P&L of positions closed before this entry.
+      // Unrealized gains on still-open positions are locked up, so they don't inflate sizing.
       let realized=0;
       for(const q of positions){
         if(q.status==="closed"&&q.exitDate&&q.exitDate<p.entryDate){
@@ -257,7 +273,7 @@ async function load(){
   if(!configured)return;
   const {data,error}=await sb.from("book").select("data").eq("id","main").single();
   if(error){banner("Could not load the book: "+error.message);return;}
-  if(data?.data){BOOK={profile:{currency:"$",benchmark:"^GSPC",startingCapital:1000000,...data.data.profile},positions:data.data.positions||[],benchmark:data.data.benchmark||null};}
+  if(data?.data){BOOK={profile:{currency:"$",benchmark:"^GSPC",startingCapital:1000000,...data.data.profile},positions:data.data.positions||[],benchmark:data.data.benchmark||null,dossiers:data.data.dossiers||{}};}
 }
 async function save(){
   if(!isOwner()){banner("Sign in to edit.");return false;}
@@ -358,23 +374,52 @@ function renderExposure(book){
       scales:{x:{display:false},y:{stacked:true,min:0,max:100,grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},callback:v=>v+"%"}}}}});
 }
 
+function sortLegs(arr){
+  const a=[...arr];
+  if(sortKey==="pnl")a.sort((x,y)=>(posPnL(y)??-1e12)-(posPnL(x)??-1e12));
+  else if(sortKey==="ret")a.sort((x,y)=>(posReturn(y)??-9)-(posReturn(x)??-9));
+  else a.sort((x,y)=>(y.entryDate||"").localeCompare(x.entryDate||""));
+  return a;
+}
+function dossierStats(legs){
+  let pnl=0,has=false;const entries=[],exits=[];
+  legs.forEach(p=>{const x=posPnL(p);if(x!=null){pnl+=x;has=true;}if(p.entryDate)entries.push(p.entryDate);exits.push(p.status==="closed"?p.exitDate:today());});
+  return {pnl:has?pnl:null,from:entries.length?entries.slice().sort()[0]:null,to:exits.filter(Boolean).sort().slice(-1)[0]||null,n:legs.length};
+}
+function cardHTML(p){
+  const r=posReturn(p),pnl=posPnL(p),dir=p.direction==="long",gi=BOOK.positions.indexOf(p);
+  const w=(p.weight!=null&&p.weight!=="")?`<span class="wbadge">${Number(p.weight).toFixed(0)}%</span>`:"";
+  const dos=(viewMode!=="dossiers"&&p.dossier)?`<span class="dosbadge" data-dos="${esc(p.dossier)}">${esc(p.dossier)}</span>`:"";
+  return `<div class="card" data-i="${gi}"><div class="top"><div style="min-width:0"><div class="tk">${esc(p.ticker)} ${w}</div><div class="co">${esc(p.company||"—")}</div>${dos}</div><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span></div>
+    <div class="ret" style="color:${r==null?'var(--faint)':r>=0?'var(--gain)':'var(--loss)'}">${r==null?'—':fmtPct(r*100)}</div>
+    <div class="pnl">${pnl==null?'to value':fmtMoney(pnl)}</div>
+    <div class="dates"><span>${esc(p.entryDate)}</span><span>→</span><span>${p.status==='closed'?esc(p.exitDate):'open'}</span></div></div>`;
+}
 function renderCards(){
-  let arr=[...BOOK.positions];
-  if(sortKey==="pnl")arr.sort((a,b)=>(posPnL(b)??-1e12)-(posPnL(a)??-1e12));
-  else if(sortKey==="ret")arr.sort((a,b)=>(posReturn(b)??-9)-(posReturn(a)??-9));
-  else arr.sort((a,b)=>(b.entryDate||"").localeCompare(a.entryDate||""));
   const host=document.getElementById("cards");
-  if(!arr.length){host.className="empty";host.innerHTML=isOwner()?"No positions yet. Click “+ Position” to add your first conviction.":"Track record under construction.";return;}
+  if(!BOOK.positions.length){host.className="empty";host.innerHTML=isOwner()?"No positions yet. Click “+ Position” to add your first conviction.":"Track record under construction.";return;}
   host.className="grid";
-  host.innerHTML=arr.map(p=>{
-    const r=posReturn(p),pnl=posPnL(p),dir=p.direction==="long",gi=BOOK.positions.indexOf(p);
-    const w=(p.weight!=null&&p.weight!=="")?`<span class="wbadge">${Number(p.weight).toFixed(0)}%</span>`:"";
-    return `<div class="card" data-i="${gi}"><div class="top"><div style="min-width:0"><div class="tk">${esc(p.ticker)} ${w}</div><div class="co">${esc(p.company||"—")}</div></div><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span></div>
-      <div class="ret" style="color:${r==null?'var(--faint)':r>=0?'var(--gain)':'var(--loss)'}">${r==null?'—':fmtPct(r*100)}</div>
-      <div class="pnl">${pnl==null?'to value':fmtMoney(pnl)}</div>
-      <div class="dates"><span>${esc(p.entryDate)}</span><span>→</span><span>${p.status==='closed'?esc(p.exitDate):'open'}</span></div></div>`;
-  }).join("");
-  host.querySelectorAll(".card").forEach(c=>c.onclick=()=>openDetail(+c.dataset.i));
+  if(viewMode==="dossiers"){
+    const groups={},order=[];
+    BOOK.positions.forEach(p=>{const k=(p.dossier||"").trim();if(k){if(!groups[k]){groups[k]=[];order.push(k);}groups[k].push(p);}});
+    order.sort((a,b)=>a.localeCompare(b));
+    const ungrouped=BOOK.positions.filter(p=>!(p.dossier||"").trim());
+    let html="";
+    for(const name of order){
+      const legs=sortLegs(groups[name]),ds=dossierStats(legs);
+      html+=`<div class="dosHead" data-dos="${esc(name)}"><div><span class="dosName">${esc(name)}</span><span class="dosMeta">${ds.n} legs · ${esc(ds.from||'')} → ${esc(ds.to||'')}</span></div><div style="display:flex;align-items:center;gap:14px"><span class="dosPnl" style="color:${ds.pnl==null?'var(--faint)':ds.pnl>=0?'var(--gain)':'var(--loss)'}">${ds.pnl==null?'—':fmtMoney(ds.pnl)}</span><span class="dosOpen">Thesis →</span></div></div>`;
+      html+=legs.map(cardHTML).join("");
+    }
+    if(ungrouped.length){
+      if(order.length)html+=`<div class="dosHead standalone"><span class="dosName" style="color:var(--soft)">Standalone</span></div>`;
+      html+=sortLegs(ungrouped).map(cardHTML).join("");
+    }
+    host.innerHTML=html;
+    host.querySelectorAll(".dosHead[data-dos]").forEach(h=>h.onclick=()=>openDossier(h.dataset.dos));
+  } else {
+    host.innerHTML=sortLegs(BOOK.positions).map(cardHTML).join("");
+  }
+  host.querySelectorAll(".card").forEach(c=>c.onclick=(e)=>{if(e.target.classList.contains("dosbadge")){openDossier(e.target.dataset.dos);return;}openDetail(+c.dataset.i);});
 }
 
 const overlay=document.getElementById("overlay"),modal=document.getElementById("modal");
@@ -427,6 +472,7 @@ function openProfile(){
 function openForm(existing){
   const e=existing||{ticker:"",company:"",direction:"long",weight:"",sizing:"",entryDate:today(),entryPrice:"",exitDate:"",exitPrice:"",thesis:"",dataSymbol:""};
   let mode=existing?((existing.weight!=null&&existing.weight!=="")?"pct":"amt"):"pct";
+  const dosOpts=[...new Set([...Object.keys(BOOK.dossiers||{}),...BOOK.positions.map(p=>p.dossier).filter(Boolean)])].map(d=>`<option value="${esc(d)}">`).join("");
   const sizeField=()=>mode==="pct"
     ? `<div class="field"><label>Weight (% of portfolio)</label><input id="fW" class="inp" value="${esc(e.weight??"")}" placeholder="10"></div>`
     : `<div class="field"><label>Amount (${cur()})</label><input id="fW" class="inp" value="${esc(e.sizing??"")}" placeholder="100000"></div>`;
@@ -448,6 +494,7 @@ function openForm(existing){
       <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP.DE, MC.PA…"></div>
     </div>
     <div class="field"><label>Thesis</label><textarea id="fTh" class="inp" rows="2" placeholder="Your reasoning at entry.">${esc(e.thesis)}</textarea></div>
+    <div class="field"><label>Dossier / theme (optional)</label><input id="fDos" class="inp" list="dosList" value="${esc(e.dossier||'')}" placeholder="e.g. GLP-1 — groups legs into one dossier"><datalist id="dosList">${dosOpts}</datalist></div>
     <div style="font-size:10px;color:var(--faint);margin-top:8px">% mode: the $ amount is computed from portfolio NAV at the entry date. Data symbol = Yahoo ticker (US plain; Europe with suffix: Paris <span class="mono">.PA</span>, Xetra <span class="mono">.DE</span>, Amsterdam <span class="mono">.AS</span>, London <span class="mono">.L</span>, Milan <span class="mono">.MI</span>, Madrid <span class="mono">.MC</span>, Swiss <span class="mono">.SW</span>).</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" id="fCancel">Cancel</button><button class="btn" id="fSave">Save</button></div>`);
   let dir=e.direction;
@@ -469,7 +516,7 @@ function openForm(existing){
     const obj={id:existing?existing.id:uid(),ticker:tk,company:document.getElementById("fCo").value,direction:dir,
       weight:mode==="pct"?sizeVal:null,sizing:mode==="amt"?sizeVal:null,
       entryDate:document.getElementById("fED").value,entryPrice:ep,exitDate:closed?xd:null,exitPrice:closed?Number(xp):null,
-      status:closed?"closed":"open",thesis:document.getElementById("fTh").value,dataSymbol:document.getElementById("fDS").value.trim(),
+      status:closed?"closed":"open",thesis:document.getElementById("fTh").value,dataSymbol:document.getElementById("fDS").value.trim(),dossier:document.getElementById("fDos").value.trim()||null,
       annotations:existing?existing.annotations||[]:[],series:existing?existing.series||null:null,markPrice:existing?existing.markPrice:null};
     if(existing)BOOK.positions=BOOK.positions.map(p=>p.id===existing.id?obj:p);
     else BOOK.positions=[obj,...BOOK.positions];
@@ -538,7 +585,34 @@ function openDetail(i){
           y:{grid:{color:"#232E3A"},ticks:{color:"#5E6C7A",font:{size:9,family:"'IBM Plex Mono',monospace"},callback:(v)=>fmtPx(v)}}}}});
   }
 }
-document.querySelectorAll(".sortbtn").forEach(b=>b.onclick=()=>{document.querySelectorAll(".sortbtn").forEach(x=>x.classList.remove("on"));b.classList.add("on");sortKey=b.dataset.sort;renderCards();});
+function openDossier(name){
+  const legs=BOOK.positions.filter(p=>(p.dossier||"").trim()===name);
+  if(!legs.length)return;
+  const ds=dossierStats(legs),owner=isOwner();
+  const thesis=(BOOK.dossiers&&BOOK.dossiers[name]&&BOOK.dossiers[name].thesis)||"";
+  const sorted=sortLegs(legs);
+  showModal(`
+    <div class="mhead">
+      <div><div style="display:flex;align-items:center;gap:10px"><span class="mtk" style="color:var(--gold)">${esc(name)}</span><span class="tag" style="background:rgba(217,164,65,.13);color:var(--gold)">dossier</span></div>
+      <div class="mmeta"><span>${ds.n} legs</span><span>${esc(ds.from||'')} → ${esc(ds.to||'')}</span></div></div>
+      <div style="display:flex;gap:12px;align-items:flex-start"><div style="text-align:right"><div class="mret" style="color:${ds.pnl==null?'var(--faint)':ds.pnl>=0?'var(--gain)':'var(--loss)'}">${ds.pnl==null?'—':fmtMoney(ds.pnl)}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-top:3px">combined P&L</div></div><button class="close" id="dxClose">×</button></div>
+    </div>
+    ${owner
+      ? `<div class="field"><label>Dossier thesis — written once for the whole theme</label><textarea id="dxThesis" class="inp" rows="6" placeholder="The unified thesis across all legs — e.g. the GLP-1 long/short complex: long the share-gainer, short the loser, with a tactical leg.">${esc(thesis)}</textarea></div>
+         <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:10px"><span id="dxStatus" style="font-size:11px;color:var(--gain)"></span><button class="btn" id="dxSave">Save thesis</button></div>`
+      : (thesis?`<div class="thesis">${esc(thesis)}</div>`:`<div style="font-size:12px;color:var(--faint);margin-top:8px">No dossier thesis yet.</div>`)}
+    <div class="annh">Legs</div>
+    <div class="dosLegs">${sorted.map(p=>{const r=posReturn(p),dir=p.direction==="long",gi=BOOK.positions.indexOf(p);const w=(p.weight!=null&&p.weight!=="")?` ${Number(p.weight).toFixed(0)}%`:"";
+      return `<div class="dosLeg" data-i="${gi}"><div style="display:flex;align-items:center;gap:8px;min-width:0"><span class="tag ${dir?'long':'short'}">${esc(p.direction)}</span><span class="mono" style="font-weight:600">${esc(p.ticker)}${w}</span><span style="font-size:11px;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.company||'')}</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span class="mono" style="font-size:11px;color:var(--faint)">${esc(p.entryDate)}→${p.status==='closed'?esc(p.exitDate):'open'}</span><span class="mono" style="font-size:13px;color:${r==null?'var(--faint)':r>=0?'var(--gain)':'var(--loss)'}">${r==null?'—':fmtPct(r*100)}</span></div></div>`;
+    }).join("")}</div>
+  `);
+  document.getElementById("dxClose").onclick=closeModal;
+  if(owner){document.getElementById("dxSave").onclick=async()=>{if(!BOOK.dossiers)BOOK.dossiers={};BOOK.dossiers[name]={...(BOOK.dossiers[name]||{}),thesis:document.getElementById("dxThesis").value};if(await save()){document.getElementById("dxStatus").textContent="Saved ✓";setTimeout(()=>{const s=document.getElementById("dxStatus");if(s)s.textContent="";},2500);}};}
+  modal.querySelectorAll(".dosLeg").forEach(el=>el.onclick=()=>openDetail(+el.dataset.i));
+}
+document.querySelectorAll("[data-sort]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-sort]").forEach(x=>x.classList.remove("on"));b.classList.add("on");sortKey=b.dataset.sort;renderCards();});
+document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-view]").forEach(x=>x.classList.remove("on"));b.classList.add("on");viewMode=b.dataset.view;renderCards();});
 
 (async function init(){
   if(configured){
