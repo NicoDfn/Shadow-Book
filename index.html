@@ -135,7 +135,7 @@ window.CONFIG = {
     <div style="display:flex;gap:12px;align-items:center">
       <div class="sorts" id="viewToggle">
         <button class="sortbtn on" data-view="flat">Flat</button>
-        <button class="sortbtn" data-view="dossiers">Dossiers</button>
+        <button class="sortbtn" data-view="dossiers">Files</button>
       </div>
       <div class="sorts">
         <button class="sortbtn on" data-sort="date">Recent</button>
@@ -494,7 +494,7 @@ function openForm(existing){
       <div class="field"><label>Data symbol (opt.)</label><input id="fDS" class="inp" value="${esc(e.dataSymbol||'')}" placeholder="SAP.DE, MC.PA…"></div>
     </div>
     <div class="field"><label>Thesis</label><textarea id="fTh" class="inp" rows="2" placeholder="Your reasoning at entry.">${esc(e.thesis)}</textarea></div>
-    <div class="field"><label>Dossier / theme (optional)</label><input id="fDos" class="inp" list="dosList" value="${esc(e.dossier||'')}" placeholder="e.g. GLP-1 — groups legs into one dossier"><datalist id="dosList">${dosOpts}</datalist></div>
+    <div class="field"><label>File / theme (optional)</label><input id="fDos" class="inp" list="dosList" value="${esc(e.dossier||'')}" placeholder="e.g. GLP-1 — groups legs into one file"><datalist id="dosList">${dosOpts}</datalist></div>
     <div style="font-size:10px;color:var(--faint);margin-top:8px">% mode: the $ amount is computed from portfolio NAV at the entry date. Data symbol = Yahoo ticker (US plain; Europe with suffix: Paris <span class="mono">.PA</span>, Xetra <span class="mono">.DE</span>, Amsterdam <span class="mono">.AS</span>, London <span class="mono">.L</span>, Milan <span class="mono">.MI</span>, Madrid <span class="mono">.MC</span>, Swiss <span class="mono">.SW</span>).</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px"><button class="btn ghost" id="fCancel">Cancel</button><button class="btn" id="fSave">Save</button></div>`);
   let dir=e.direction;
@@ -593,12 +593,12 @@ function openDossier(name){
   const sorted=sortLegs(legs);
   showModal(`
     <div class="mhead">
-      <div><div style="display:flex;align-items:center;gap:10px"><span class="mtk" style="color:var(--gold)">${esc(name)}</span><span class="tag" style="background:rgba(217,164,65,.13);color:var(--gold)">dossier</span></div>
+      <div><div style="display:flex;align-items:center;gap:10px"><span class="mtk" style="color:var(--gold)">${esc(name)}</span><span class="tag" style="background:rgba(217,164,65,.13);color:var(--gold)">file</span></div>
       <div class="mmeta"><span>${ds.n} legs</span><span>${esc(ds.from||'')} → ${esc(ds.to||'')}</span></div></div>
       <div style="display:flex;gap:12px;align-items:flex-start"><div style="text-align:right"><div class="mret" style="color:${ds.pnl==null?'var(--faint)':ds.pnl>=0?'var(--gain)':'var(--loss)'}">${ds.pnl==null?'—':fmtMoney(ds.pnl)}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);margin-top:3px">combined P&L</div></div><button class="close" id="dxClose">×</button></div>
     </div>
     ${owner
-      ? `<div class="field"><label>Dossier thesis — written once for the whole theme</label><textarea id="dxThesis" class="inp" rows="6" placeholder="The unified thesis across all legs — e.g. the GLP-1 long/short complex: long the share-gainer, short the loser, with a tactical leg.">${esc(thesis)}</textarea></div>
+      ? `<div class="field"><label>File thesis — written once for the whole theme</label><textarea id="dxThesis" class="inp" rows="6" placeholder="The unified thesis across all legs — e.g. the GLP-1 long/short complex: long the share-gainer, short the loser, with a tactical leg.">${esc(thesis)}</textarea></div>
          <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-top:10px"><span id="dxStatus" style="font-size:11px;color:var(--gain)"></span><button class="btn" id="dxSave">Save thesis</button></div>`
       : (thesis?`<div class="thesis">${esc(thesis)}</div>`:`<div style="font-size:12px;color:var(--faint);margin-top:8px">No dossier thesis yet.</div>`)}
     <div class="annh">Legs</div>
